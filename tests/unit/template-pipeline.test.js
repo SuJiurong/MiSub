@@ -138,6 +138,32 @@ MATCH,Main
         expect(parsed.rules).toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
     });
 
+    it('does not inject builtin AI policy groups when ruleLevel is none', () => {
+        const rendered = renderClashFromIniTemplate(`
+[Proxy Group]
+Main = select, HK-01, DIRECT
+🤖 AI 服务 = select, HK-01
+
+[Rule]
+DOMAIN-SUFFIX,openai.com,🤖 AI 服务
+MATCH,Main
+        `, {
+            ruleLevel: 'none',
+            proxies: [
+                { name: 'HK-01', type: 'trojan', server: '1.1.1.1', port: 443, password: 'pass' }
+            ]
+        });
+
+        const parsed = yaml.load(rendered);
+        const groupNames = parsed['proxy-groups'].map(group => group.name);
+        expect(groupNames).toEqual(expect.arrayContaining(['Main', '🤖 AI 服务']));
+        expect(groupNames).not.toEqual(expect.arrayContaining([
+            '🤖 AI 自动', '🤖 AI 故障转移', '🤖 智能 AI', '🤖 OpenAI', '🤖 Claude'
+        ]));
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,openai.com,🤖 AI 服务');
+        expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
+    });
+
     it('should keep Clash template relay-like groups as plain select without dialer-proxy', () => {
         const rendered = renderClashFromIniTemplate(`
 [Proxy Group]

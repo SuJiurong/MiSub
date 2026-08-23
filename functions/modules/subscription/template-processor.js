@@ -309,11 +309,13 @@ export function applySmartModelOptimizations(model) {
     // DNS 出站不能继承普通主组的 DIRECT 选项，否则 TUN 下会泄露或形成递归。
     ensureDnsProxyGroup(model);
 
-    // AI 服务分组必须代理优先且 fail-closed；同时补齐主要服务的独立域名规则。
-    ensureAiPolicy(model);
-
     // 2. 检查等级。如果是 none (完全禁用)，我们只执行占位符展开和清理，不进行智能注入。
     const normalizedLevel = (ruleLevel || '').toLowerCase();
+
+    // 自定义预设（ruleLevel=none）不注入内置 AI 策略组，只保留模板手写的组。
+    if (normalizedLevel !== 'none') {
+        ensureAiPolicy(model);
+    }
     
     if (normalizedLevel !== 'none' && normalizedLevel !== 'base' && normalizedLevel) {
         // 3. 准备获取所有节点的名称，用于后续注入
