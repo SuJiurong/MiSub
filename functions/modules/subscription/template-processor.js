@@ -145,7 +145,7 @@ function dedupeGroupsByName(model) {
 function expandMagicPlaceholders(model) {
     const regionNames = Array.from(new Set(
         model.groups
-            .filter(g => g.type === 'url-test' && !g.name.includes('自动'))
+            .filter(g => g.type === 'url-test' && g.name !== DNS_PROXY_GROUP && !g.name.includes('自动'))
             .map(g => g.name)
     ));
     
@@ -186,18 +186,26 @@ function pruneInvalidMembers(model) {
 
     model.groups.forEach(group => {
         if (Array.isArray(group.members)) {
-            group.members = group.members.filter(m => validTargetNames.has(m));
+            group.members = group.members.filter(m => {
+                if (m === DNS_PROXY_GROUP && group.name !== DNS_PROXY_GROUP) return false;
+                return validTargetNames.has(m);
+            });
         }
     });
 }
 
 function ensureDnsProxyGroup(model) {
-    if (model.groups.some(group => group.name === DNS_PROXY_GROUP)) return;
+    const existing = model.groups.find(group => group.name === DNS_PROXY_GROUP);
+    if (existing) {
+        existing.hidden = true;
+        return;
+    }
     const proxyNames = model.proxies.map(proxy => proxy.name || proxy.tag).filter(Boolean);
     model.groups.push({
         name: DNS_PROXY_GROUP,
         type: 'url-test',
         members: proxyNames.length > 0 ? proxyNames : ['REJECT'],
+        hidden: true,
         filters: [],
         options: {
             url: 'http://www.gstatic.com/generate_204',
@@ -355,7 +363,7 @@ export function applySmartModelOptimizations(model) {
             // 如果该组还没有任何成员，注入所有可用的组
             if (targetGroup.members.length === 0) {
                 const availableGroups = model.groups
-                    .filter(g => g.name !== targetGroup.name && (g.type === 'url-test' || g.type === 'fallback'))
+                    .filter(g => g.name !== targetGroup.name && g.name !== DNS_PROXY_GROUP && (g.type === 'url-test' || g.type === 'fallback'))
                     .map(g => g.name);
                 targetGroup.members.push(...availableGroups);
             }

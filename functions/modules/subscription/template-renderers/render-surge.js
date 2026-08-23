@@ -268,6 +268,10 @@ function buildWireGuardSection(proxy) {
     return lines.join('\n');
 }
 
+function withHiddenFlag(line, group) {
+    return group.hidden === true ? `${line}, hidden=true` : line;
+}
+
 function buildProxyGroupLine(group) {
     const type = String(group.type || 'select').toLowerCase();
     const rawMembers = Array.isArray(group.members) ? group.members.filter(Boolean) : [];
@@ -278,16 +282,16 @@ function buildProxyGroupLine(group) {
     const tolerance = group.options?.tolerance;
     if (type === 'url-test') {
         const base = filter ? `${group.name} = url-test, policy-path=${filter}, url=${group.options?.url || 'http://www.gstatic.com/generate_204'}, interval=${group.options?.interval || 300}` : `${group.name} = url-test, ${members}, url=${group.options?.url || 'http://www.gstatic.com/generate_204'}, interval=${group.options?.interval || 300}`;
-        return tolerance ? `${base}, tolerance=${tolerance}` : base;
+        return withHiddenFlag(tolerance ? `${base}, tolerance=${tolerance}` : base, group);
     }
     if (type === 'fallback') {
         const base = filter ? `${group.name} = fallback, policy-path=${filter}, url=${group.options?.url || 'http://www.gstatic.com/generate_204'}, interval=${group.options?.interval || 300}` : `${group.name} = fallback, ${members}, url=${group.options?.url || 'http://www.gstatic.com/generate_204'}, interval=${group.options?.interval || 300}`;
-        return tolerance ? `${base}, tolerance=${tolerance}` : base;
+        return withHiddenFlag(tolerance ? `${base}, tolerance=${tolerance}` : base, group);
     }
     if (type === 'load-balance') {
-        return filter ? `${group.name} = load-balance, policy-path=${filter}, url=${group.options?.url || 'http://www.gstatic.com/generate_204'}, interval=${group.options?.interval || 300}` : `${group.name} = load-balance, ${members}`;
+        return withHiddenFlag(filter ? `${group.name} = load-balance, policy-path=${filter}, url=${group.options?.url || 'http://www.gstatic.com/generate_204'}, interval=${group.options?.interval || 300}` : `${group.name} = load-balance, ${members}`, group);
     }
-    return `${group.name} = select, ${members}`;
+    return withHiddenFlag(`${group.name} = select, ${members}`, group);
 }
 
 function buildRuleLine(rule) {

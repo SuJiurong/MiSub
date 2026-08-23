@@ -371,7 +371,8 @@ resource-parser = https://raw.githubusercontent.com/sub-store-org/Sub-Store/mast
         const proxies = group.proxies.join(', ');
         const icon = groupIcons[group.name] ? `, icon=${groupIcons[group.name]}` : '';
         const extra = type === 'url-test' || type === 'fallback' ? `, url=http://www.gstatic.com/generate_204, interval=300, tolerance=50` : '';
-        return `${group.name} = ${type}, ${proxies}${extra}${icon}`;
+        const hidden = group.hidden === true ? ', hidden=true' : '';
+        return `${group.name} = ${type}, ${proxies}${extra}${icon}${hidden}`;
     });
 
     sections.push(`[Proxy Group]\n${proxyGroupLines.join('\n')}`);

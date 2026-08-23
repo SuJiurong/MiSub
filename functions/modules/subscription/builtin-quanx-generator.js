@@ -324,7 +324,8 @@ export function generateBuiltinQuanxConfig(nodeList, options = {}) {
         const proxies = group.proxies.map(normalizePolicyMember).join(', ');
         const icon = groupIcons[group.name] ? `, img-url=${groupIcons[group.name]}` : '';
         const extra = type === 'url-latency-benchmark' ? ', check-interval=300, tolerance=50' : '';
-        return `${type}=${group.name}, ${proxies}${extra}${icon}`;
+        const hidden = group.hidden === true ? ', hidden=true' : '';
+        return `${type}=${group.name}, ${proxies}${extra}${icon}${hidden}`;
     });
 
     sections.push(`[policy]\n${groupLines.join('\n')}`);

@@ -150,6 +150,10 @@ function buildProxyLine(proxy) {
     return null;
 }
 
+function withHiddenFlag(line, group) {
+    return group.hidden === true ? `${line}, hidden=true` : line;
+}
+
 function buildPolicyLine(group) {
     const type = String(group.type || 'select').toLowerCase();
     const rawMembers = Array.isArray(group.members) ? group.members.filter(Boolean) : [];
@@ -160,17 +164,17 @@ function buildPolicyLine(group) {
     const interval = group.options?.interval || 300;
     
     if (type === 'url-test' || type === 'url-latency-benchmark') {
-        return `url-latency-benchmark=${group.name}, ${members}, check-interval=${interval}, tolerance=${tolerance}`;
+        return withHiddenFlag(`url-latency-benchmark=${group.name}, ${members}, check-interval=${interval}, tolerance=${tolerance}`, group);
     }
     if (type === 'fallback' || type === 'available') {
-        return `available=${group.name}, ${members}`;
+        return withHiddenFlag(`available=${group.name}, ${members}`, group);
     }
     if (type === 'load-balance') {
         // Quantumult X round-robin/load-balance isn't natively identical, but 'available' or 'static' is usually the fallback.
         // Or we can just fallback to static
-        return `static=${group.name}, ${members}`;
+        return withHiddenFlag(`static=${group.name}, ${members}`, group);
     }
-    return `static=${group.name}, ${members}`;
+    return withHiddenFlag(`static=${group.name}, ${members}`, group);
 }
 
 function buildRuleLine(rule) {

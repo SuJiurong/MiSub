@@ -234,37 +234,44 @@ function mapProxy(proxy) {
     return mapped;
 }
 
+function withHiddenField(mapped, group) {
+    if (group.hidden === true) {
+        Object.values(mapped)[0].hidden = true;
+    }
+    return mapped;
+}
+
 function mapPolicyGroup(group) {
     const type = s(group.type || 'select').toLowerCase();
     const policies = Array.isArray(group.members) ? group.members.filter(Boolean).map(p => s(p)) : [];
 
     if (type === 'url-test' || type === 'urltest' || type === 'auto-test') {
-        return {
+        return withHiddenField({
             auto_test: {
                 name: s(group.name),
                 policies,
                 interval: Number(group.options?.interval) || 600,
                 tolerance: Number(group.options?.tolerance) || 100
             }
-        };
+        }, group);
     }
 
     if (type === 'fallback') {
-        return {
+        return withHiddenField({
             fallback: {
                 name: s(group.name),
                 policies,
                 interval: Number(group.options?.interval) || 600
             }
-        };
+        }, group);
     }
 
-    return {
+    return withHiddenField({
         select: {
             name: s(group.name),
             policies
         }
-    };
+    }, group);
 }
 
 function mapRule(rule) {

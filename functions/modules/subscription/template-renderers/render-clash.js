@@ -184,7 +184,8 @@ export function renderClashFromTemplateModel(model) {
                     type: mapGroupType(group.type),
                     proxies: filterAutoSelectMembers(group),
                     filter: Array.isArray(group.filters) && group.filters.length > 0 ? group.filters.join('|') : undefined,
-                    ...group.options
+                    ...group.options,
+                    ...(group.hidden === true ? { hidden: true } : {})
                 };
             }),
         'rule-providers': Object.keys(ruleProviders).length > 0 ? ruleProviders : undefined,

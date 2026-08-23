@@ -4,6 +4,7 @@ import { parseIniTemplate } from '../../functions/modules/subscription/template-
 import { renderClashFromIniTemplate, renderLoonFromIniTemplate, renderQuanxFromIniTemplate, renderSingboxFromIniTemplate, renderSurgeFromIniTemplate } from '../../functions/modules/subscription/template-pipeline.js';
 import { getBuiltinTemplate } from '../../functions/modules/subscription/builtin-template-registry.js';
 import { PINNED_RULE_REVISIONS } from '../../functions/modules/subscription/builtin-rules-provider.js';
+import { DNS_PROXY_GROUP } from '../../functions/modules/subscription/safe-dns.js';
 
 const SS2022_V2RAY_PLUGIN_NODE = 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206TldSak1UVmxNVFZtTWpnMU5HRTVaRGsxT1dJd1pUUm1ZbVJrTnpkaU5qTT0@cf.090227.xyz:8080?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Bhost%3Dss.2227tsj.workers.dev%3Bpath%3D%2F%3Fenc%5C%3D2022-blake3-aes-256-gcm%3Bmux%3D0#2022-blake3-aes-256-gcm';
 
@@ -162,6 +163,43 @@ MATCH,Main
         ]));
         expect(parsed.rules).toContain('DOMAIN-SUFFIX,openai.com,🤖 AI 服务');
         expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
+    });
+
+    it('hides the DNS proxy group and does not nest it inside other groups for custom presets', () => {
+        const proxies = [
+            { name: 'HK-01', type: 'trojan', server: '1.1.1.1', port: 443, password: 'pass' },
+            { name: 'JP-01', type: 'trojan', server: '2.2.2.2', port: 443, password: 'pass' }
+        ];
+        const rendered = renderClashFromIniTemplate(`
+[custom]
+custom_proxy_group=🚀 节点选择\`select\`[]♻️ 自动选择\`[]<%regionStrategyChain%>\`[]DIRECT
+custom_proxy_group=♻️ 自动选择\`url-test\`.*\`http://www.gstatic.com/generate_204\`300,,50
+custom_proxy_group=🇭🇰 香港节点\`url-test\`(港|HK)\`http://www.gstatic.com/generate_204\`300,,50
+
+[Proxy Group]
+🚀 节点选择 = select, ${DNS_PROXY_GROUP}, HK-01, DIRECT
+
+[Rule]
+MATCH,🚀 节点选择
+        `, {
+            ruleLevel: 'none',
+            proxies
+        });
+
+        const parsed = yaml.load(rendered);
+        const dnsGroup = parsed['proxy-groups'].find(group => group.name === DNS_PROXY_GROUP);
+        const selectGroup = parsed['proxy-groups'].find(group => group.name === '🚀 节点选择');
+        const autoGroup = parsed['proxy-groups'].find(group => group.name === '♻️ 自动选择');
+
+        expect(dnsGroup).toBeTruthy();
+        expect(dnsGroup.hidden).toBe(true);
+        expect(dnsGroup.proxies).toEqual(expect.arrayContaining(['HK-01', 'JP-01']));
+        expect(parsed.dns.nameserver.every(server => String(server).endsWith(`#${DNS_PROXY_GROUP}`))).toBe(true);
+        expect(selectGroup.proxies).not.toContain(DNS_PROXY_GROUP);
+        expect(autoGroup.proxies).not.toContain(DNS_PROXY_GROUP);
+        expect(parsed['proxy-groups']
+            .filter(group => group.name !== DNS_PROXY_GROUP)
+            .every(group => !group.proxies?.includes(DNS_PROXY_GROUP))).toBe(true);
     });
 
     it('should keep Clash template relay-like groups as plain select without dialer-proxy', () => {
