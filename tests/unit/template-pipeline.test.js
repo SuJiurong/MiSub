@@ -118,10 +118,13 @@ MATCH,节点选择
         expect(autoSelectGroup.proxies).not.toContain('DIRECT');
     });
 
-    it('adds fail-closed AI service groups without changing a normal Main group', () => {
+    it('does not overlay builtin per-service AI groups onto INI templates', () => {
         const rendered = renderClashFromIniTemplate(`
 [Proxy Group]
 Main = select, HK-01, DIRECT
+Telegram = select, HK-01
+🎯 全球直连 = select, DIRECT
+🐟 漏网之鱼 = select, Main
 
 [Rule]
 MATCH,Main
@@ -132,11 +135,36 @@ MATCH,Main
         });
 
         const parsed = yaml.load(rendered);
-        const aiGroups = parsed['proxy-groups'].filter(group => String(group.name).startsWith('🤖'));
-        expect(aiGroups.length).toBeGreaterThan(3);
-        expect(aiGroups.every(group => !group.proxies.includes('DIRECT'))).toBe(true);
+        const groupNames = parsed['proxy-groups'].map(group => group.name);
+        expect(groupNames).toEqual(expect.arrayContaining(['Main', 'Telegram', '🎯 全球直连', '🐟 漏网之鱼']));
+        expect(groupNames).not.toEqual(expect.arrayContaining([
+            '🤖 AI 自动', '🤖 AI 故障转移', '🤖 智能 AI', '🤖 OpenAI', '🤖 Claude', '🤖 Gemini'
+        ]));
         expect(parsed['proxy-groups'].find(group => group.name === 'Main').proxies).toContain('DIRECT');
-        expect(parsed.rules).toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
+        expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
+    });
+
+    it('keeps a builtin preset template AI group without injecting extra service groups', () => {
+        const builtinTemplate = getBuiltinTemplate('clash_misub_media_ai');
+        const rendered = renderClashFromIniTemplate(builtinTemplate.content, {
+            nodeList: 'trojan://password@1.2.3.4:443#HK-01',
+            targetFormat: 'clash'
+        });
+        const parsed = yaml.load(rendered);
+        const groupNames = parsed['proxy-groups'].map(group => group.name);
+
+        expect(groupNames).toContain('🤖 AI 服务');
+        expect(groupNames).toContain('📲 电报消息');
+        expect(groupNames).toContain('🎯 全球直连');
+        expect(groupNames).toContain('🐟 漏网之鱼');
+        expect(groupNames).not.toContain('🤖 OpenAI');
+        expect(groupNames).not.toContain('🤖 Claude');
+        expect(groupNames).not.toContain('🤖 智能 AI');
+        expect(groupNames).not.toContain('🤖 AI 自动');
+        expect(parsed['proxy-groups'].find(group => group.name === DNS_PROXY_GROUP)?.hidden).toBe(true);
+        expect(parsed['proxy-groups']
+            .filter(group => group.name !== DNS_PROXY_GROUP)
+            .every(group => !group.proxies?.includes(DNS_PROXY_GROUP))).toBe(true);
     });
 
     it('does not inject builtin AI policy groups when ruleLevel is none', () => {

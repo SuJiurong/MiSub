@@ -319,9 +319,11 @@ export function applySmartModelOptimizations(model) {
 
     // 2. 检查等级。如果是 none (完全禁用)，我们只执行占位符展开和清理，不进行智能注入。
     const normalizedLevel = (ruleLevel || '').toLowerCase();
+    const isIniTemplate = String(model.meta?.source || '').toLowerCase() === 'ini';
 
-    // 自定义预设（ruleLevel=none）不注入内置 AI 策略组，只保留模板手写的组。
-    if (normalizedLevel !== 'none') {
+    // INI 配置方案（含订阅组里选的 builtin 预设 / 自定义模板）已经自带策略组。
+    // 再注入 OpenAI/Claude 等内置 AI 组会叠在模板的「AI 服务 / 电报 / 漏网之鱼」之上。
+    if (normalizedLevel !== 'none' && !isIniTemplate) {
         ensureAiPolicy(model);
     }
     
