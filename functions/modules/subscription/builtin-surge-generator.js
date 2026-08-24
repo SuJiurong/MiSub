@@ -506,8 +506,7 @@ dns-server = 119.29.29.29, 223.5.5.5, system`);
         
         const proxies = group.proxies.join(', ');
         const extra = type === 'url-test' || type === 'fallback' ? ', url=http://www.gstatic.com/generate_204, interval=300, tolerance=50' : '';
-        const hidden = group.hidden === true ? ', hidden=true' : '';
-        return `${group.name} = ${type}, ${proxies}${extra}${hidden}`;
+        return `${group.name} = ${type}, ${proxies}${extra}`;
     });
 
     sections.push(`[Proxy Group]\n${proxyGroupLines.join('\n')}`);

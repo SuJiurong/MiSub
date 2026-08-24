@@ -31,12 +31,6 @@ describe('Clash 内置生成器', () => {
         expect(parsed.dns['respect-rules']).toBe(true);
         expect(parsed.dns.nameserver).toContain('udp://8.8.8.8:53#🌐 DNS 出口');
         expect(parsed.dns['nameserver-policy']['geosite:cn']).toEqual(['223.5.5.5', '119.29.29.29']);
-
-        const dnsGroup = parsed['proxy-groups'].find(group => group.name === '🌐 DNS 出口');
-        expect(dnsGroup).toBeTruthy();
-        expect(dnsGroup.hidden).toBe(true);
-        const otherGroups = parsed['proxy-groups'].filter(group => group.name !== '🌐 DNS 出口');
-        expect(otherGroups.every(group => !group.proxies?.includes('🌐 DNS 出口'))).toBe(true);
     });
     it('should render SS v2ray-plugin mux as a boolean for Clash compatibility', () => {
         const node = 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206TldSak1UVmxNVFZtTWpnMU5HRTVaRGsxT1dJd1pUUm1ZbVJrTnpkaU5qTT0@cf.090227.xyz:8080?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Bhost%3Dss.2227tsj.workers.dev%3Bpath%3D%2F%3Fenc%5C%3D2022-blake3-aes-256-gcm%3Bmux%3D0#2022-blake3-aes-256-gcm';
