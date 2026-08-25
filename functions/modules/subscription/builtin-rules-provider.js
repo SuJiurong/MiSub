@@ -1,5 +1,6 @@
 import { groupNodeLinesByRegion } from './region-groups.js';
 import { DNS_PROXY_GROUP, SINGBOX_CN_RULE_SET } from './safe-dns.js';
+import { SOCKS5_GROUP, isSocks5Proxy, insertGroupBeforeDirect } from './protocol-groups.js';
 
 /**
  * 策略组标准名称常量
@@ -9,6 +10,7 @@ export const DEFAULT_RELAY_GROUP = '🌍 总出口';
 export const AUTO_SELECT_GROUP = '♻️ 自动选择';
 export const FALLBACK_GROUP = '🔯 故障转移';
 export const MANUAL_SELECT_GROUP = '👋 手动切换';
+export { SOCKS5_GROUP };
 
 export const AI_SERVICE_RULES = Object.freeze([
     { id: 'openai', name: 'OpenAI', domains: ['openai.com', 'chatgpt.com', 'oaistatic.com', 'oaiusercontent.com', 'auth0.openai.com'] },
@@ -37,6 +39,32 @@ function dnsProxyGroup(proxyNames) {
         hidden: true,
         options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
     };
+}
+
+function routingContext(proxies = []) {
+    const socksNames = [];
+    const routingNames = [];
+    for (const proxy of proxies) {
+        const name = proxy?.tag || proxy?.name;
+        if (!name) continue;
+        if (isSocks5Proxy(proxy)) socksNames.push(name);
+        else routingNames.push(name);
+    }
+    return {
+        socksNames,
+        routingNames,
+        dnsNames: routingNames.length > 0 ? routingNames : socksNames
+    };
+}
+
+function socks5SelectGroup(socksNames = []) {
+    if (!Array.isArray(socksNames) || socksNames.length === 0) return [];
+    return [{ name: SOCKS5_GROUP, type: 'select', proxies: socksNames }];
+}
+
+function withSocks5Group(members = [], socksNames = []) {
+    if (!Array.isArray(socksNames) || socksNames.length === 0) return members;
+    return insertGroupBeforeDirect(members, SOCKS5_GROUP);
 }
 
 function aiPolicyGroups(proxyNames, regionNames, { relay = false } = {}) {
@@ -81,6 +109,7 @@ export function pruneProxyGroups(proxyGroups, proxies) {
         AUTO_SELECT_GROUP,
         FALLBACK_GROUP,
         MANUAL_SELECT_GROUP,
+        SOCKS5_GROUP,
         DNS_PROXY_GROUP,
         ...['DIRECT', 'REJECT', 'REJECT-DROP', 'ANY'] // 各平台通用保留字
     ]);
@@ -119,7 +148,7 @@ export function pruneProxyGroups(proxyGroups, proxies) {
  * 内部辅助：生成地区相关的策略组定义
  */
 function _generateRegionGroups(proxies, options = {}) {
-    const regions = generateRegionData(proxies, options);
+    const regions = generateRegionData(proxies.filter(proxy => !isSocks5Proxy(proxy)), options);
     const regionSelectGroups = [];   // 地区选择组（顶级按钮）
     const regionSupportGroups = []; // 地区辅助组（隐藏/末尾）
     const regionNames = [];
@@ -155,29 +184,31 @@ function _generateRegionGroups(proxies, options = {}) {
 export const POLICY_GROUPS = {
     // 基础配置：精简版
     BASE: (proxies, options = {}) => {
-        const proxyNames = proxies.map(p => p.tag || p.name);
+        const { routingNames, socksNames, dnsNames } = routingContext(proxies);
         return [
-            dnsProxyGroup(proxyNames),
-            { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
-            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
-            { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
-            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
-            ...aiPolicyGroups(proxyNames, [])
+            dnsProxyGroup(dnsNames),
+            { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: withSocks5Group([AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'], socksNames) },
+            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: routingNames },
+            { name: FALLBACK_GROUP, type: 'fallback', proxies: routingNames },
+            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: withSocks5Group(routingNames, socksNames) },
+            ...socks5SelectGroup(socksNames),
+            ...aiPolicyGroups(routingNames, [])
         ];
     },
     // 标准配置：全能型
     STD: (proxies, options = {}) => {
-        const proxyNames = proxies.map(p => p.tag || p.name);
+        const { routingNames, socksNames, dnsNames } = routingContext(proxies);
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
-            dnsProxyGroup(proxyNames),
-            { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
-            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
-            { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
-            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
+            dnsProxyGroup(dnsNames),
+            { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: withSocks5Group([AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'], socksNames) },
+            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: routingNames },
+            { name: FALLBACK_GROUP, type: 'fallback', proxies: routingNames },
+            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: withSocks5Group(routingNames, socksNames) },
             ...regionSelectGroups,
-            ...aiPolicyGroups(proxyNames, regionNames),
+            ...socks5SelectGroup(socksNames),
+            ...aiPolicyGroups(routingNames, regionNames),
             { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
             { name: '🎥 流媒体', type: 'select', proxies: ['🇸🇬 狮城节点', '🇭🇰 香港节点', '🇹🇼 台湾节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
             { name: '🍎 Apple', type: 'select', proxies: ['DIRECT', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP] },
@@ -188,18 +219,19 @@ export const POLICY_GROUPS = {
     },
     // 完整配置：细化分类
     FULL: (proxies, options = {}) => {
-        const proxyNames = proxies.map(p => p.tag || p.name);
+        const { routingNames, socksNames, dnsNames } = routingContext(proxies);
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
-            dnsProxyGroup(proxyNames),
-            { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
-            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
-            { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
-            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
+            dnsProxyGroup(dnsNames),
+            { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: withSocks5Group([AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'], socksNames) },
+            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: routingNames },
+            { name: FALLBACK_GROUP, type: 'fallback', proxies: routingNames },
+            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: withSocks5Group(routingNames, socksNames) },
             ...regionSelectGroups,
+            ...socks5SelectGroup(socksNames),
             // AI 服务始终使用代理候选；无可用节点时由 pruneProxyGroups 保持 REJECT。
-            ...aiPolicyGroups(proxyNames, regionNames),
+            ...aiPolicyGroups(routingNames, regionNames),
             { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
             { name: '🎥 流媒体', type: 'select', proxies: ['🇸🇬 狮城节点', '🇭🇰 香港节点', '🇹🇼 台湾节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
             { name: '🍎 Apple', type: 'select', proxies: ['DIRECT', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP] },
@@ -212,25 +244,26 @@ export const POLICY_GROUPS = {
     },
     // 链式代理：中转优化
     RELAY: (proxies, options = {}) => {
-        const proxyNames = proxies.map(p => p.tag || p.name);
+        const { routingNames, socksNames, dnsNames } = routingContext(proxies);
         const { regionSelectGroups, regionSupportGroups, regionNames } = _generateRegionGroups(proxies, options);
         
         return [
-            dnsProxyGroup(proxyNames),
-            { name: DEFAULT_RELAY_GROUP, type: 'select', proxies: ['🔗 链式代理', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, '🚀 常用节点', ...regionNames, 'DIRECT'] },
+            dnsProxyGroup(dnsNames),
+            { name: DEFAULT_RELAY_GROUP, type: 'select', proxies: withSocks5Group(['🔗 链式代理', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, '🚀 常用节点', ...regionNames, 'DIRECT'], socksNames) },
             // 保持 provider 层为通用 select，不在抽象层输出 relay 语义。
             // 否则模板渲染/普通 Clash 路径可能把它转换成 Mihomo 专属 dialer-proxy，导致客户端拉取失败。
-            { name: '🔗 链式代理', type: 'select', proxies: ['入口节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT', ...proxyNames] },
-            { name: '入口节点', type: 'select', proxies: [AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT', ...proxyNames] },
+            { name: '🔗 链式代理', type: 'select', proxies: withSocks5Group(['入口节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT', ...routingNames], socksNames) },
+            { name: '入口节点', type: 'select', proxies: withSocks5Group([AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT', ...routingNames], socksNames) },
             ...regionSelectGroups,
-            { name: '🚀 常用节点', type: 'select', proxies: [AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'] },
-            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: proxyNames },
-            { name: FALLBACK_GROUP, type: 'fallback', proxies: proxyNames },
-            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: proxyNames },
+            { name: '🚀 常用节点', type: 'select', proxies: withSocks5Group([AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, ...regionNames, 'DIRECT'], socksNames) },
+            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: routingNames },
+            { name: FALLBACK_GROUP, type: 'fallback', proxies: routingNames },
+            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: withSocks5Group(routingNames, socksNames) },
+            ...socks5SelectGroup(socksNames),
             // 核心修复：链式版的分流也禁止回引 DEFAULT_RELAY_GROUP，统一使用地区组或常用节点
             { name: '🎬 视频广告', type: 'select', proxies: ['REJECT', 'DIRECT'] },
             { name: '🎥 流媒体', type: 'select', proxies: ['🇸🇬 狮城节点', '🇭🇰 香港节点', '🇹🇼 台湾节点', '🇯🇵 日本节点', AUTO_SELECT_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'] },
-            ...aiPolicyGroups(proxyNames, regionNames, { relay: true }),
+            ...aiPolicyGroups(routingNames, regionNames, { relay: true }),
             { name: '🍎 Apple', type: 'select', proxies: ['DIRECT', '🚀 常用节点', AUTO_SELECT_GROUP] },
             { name: 'Ⓜ️ Microsoft', type: 'select', proxies: ['DIRECT', '🚀 常用节点', AUTO_SELECT_GROUP] },
             ...regionSupportGroups

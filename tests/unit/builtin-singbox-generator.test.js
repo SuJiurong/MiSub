@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateBuiltinSingboxConfig } from '../../functions/modules/subscription/builtin-singbox-generator.js';
+import { SOCKS5_GROUP } from '../../functions/modules/subscription/protocol-groups.js';
 
 const SS2022_V2RAY_PLUGIN_NODE = 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206TldSak1UVmxNVFZtTWpnMU5HRTVaRGsxT1dJd1pUUm1ZbVJrTnpkaU5qTT0@cf.090227.xyz:8080?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Bhost%3Dss.2227tsj.workers.dev%3Bpath%3D%2F%3Fenc%5C%3D2022-blake3-aes-256-gcm%3Bmux%3D0#2022-blake3-aes-256-gcm';
 
@@ -60,6 +61,17 @@ describe('Built-in Sing-box generator', () => {
 
         expect(httpsNode?.tls?.enabled).toBe(true);
         expect(socksNode?.tls?.enabled).toBe(true);
+
+        const socksTags = parsed.outbounds.filter(outbound => outbound.type === 'socks').map(outbound => outbound.tag);
+        const socksGroup = parsed.outbounds.find(outbound => outbound.tag === SOCKS5_GROUP);
+        const fallback = parsed.outbounds.find(outbound => outbound.tag === '🔯 故障转移');
+        const manual = parsed.outbounds.find(outbound => outbound.tag === '👋 手动切换');
+
+        expect(socksTags.length).toBe(2);
+        expect(socksGroup?.outbounds).toEqual(expect.arrayContaining(socksTags));
+        expect(fallback?.outbounds || []).not.toEqual(expect.arrayContaining(socksTags));
+        expect(manual?.outbounds || []).not.toEqual(expect.arrayContaining(socksTags));
+        expect(manual?.outbounds).toContain(SOCKS5_GROUP);
     });
 
     it('uses split DNS server objects while preserving Trojan websocket transport', () => {

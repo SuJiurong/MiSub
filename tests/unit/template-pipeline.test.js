@@ -5,6 +5,7 @@ import { renderClashFromIniTemplate, renderLoonFromIniTemplate, renderQuanxFromI
 import { getBuiltinTemplate } from '../../functions/modules/subscription/builtin-template-registry.js';
 import { PINNED_RULE_REVISIONS } from '../../functions/modules/subscription/builtin-rules-provider.js';
 import { DNS_PROXY_GROUP } from '../../functions/modules/subscription/safe-dns.js';
+import { SOCKS5_GROUP } from '../../functions/modules/subscription/protocol-groups.js';
 
 const SS2022_V2RAY_PLUGIN_NODE = 'ss://MjAyMi1ibGFrZTMtYWVzLTI1Ni1nY206TldSak1UVmxNVFZtTWpnMU5HRTVaRGsxT1dJd1pUUm1ZbVJrTnpkaU5qTT0@cf.090227.xyz:8080?plugin=v2ray-plugin%3Bmode%3Dwebsocket%3Bhost%3Dss.2227tsj.workers.dev%3Bpath%3D%2F%3Fenc%5C%3D2022-blake3-aes-256-gcm%3Bmux%3D0#2022-blake3-aes-256-gcm';
 
@@ -142,6 +143,44 @@ MATCH,Main
         ]));
         expect(parsed['proxy-groups'].find(group => group.name === 'Main').proxies).toContain('DIRECT');
         expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
+    });
+
+    it('puts SOCKS5 nodes into a dedicated group instead of fallback/manual catch-all groups', () => {
+        const rendered = renderClashFromIniTemplate(`
+[custom]
+custom_proxy_group=🚀 节点选择\`select\`[]🔯 故障转移\`[]👋 手动切换\`[]DIRECT
+custom_proxy_group=🔯 故障转移\`fallback\`.*\`http://www.gstatic.com/generate_204\`300,,50
+custom_proxy_group=👋 手动切换\`select\`.*
+custom_proxy_group=🤖 AI 平台\`select\`.*\`[]🚀 节点选择
+custom_proxy_group=🐟 漏网之鱼\`select\`[]🚀 节点选择\`[]DIRECT
+
+[Rule]
+MATCH,🚀 节点选择
+        `, {
+            ruleLevel: 'none',
+            proxies: [
+                { name: 'HK-01', type: 'trojan', server: '1.1.1.1', port: 443, password: 'pass' },
+                { name: 'Local-SOCKS', type: 'socks5', server: '5.6.7.8', port: 1080, username: 'user', password: 'pass' },
+                { name: 'TLS-SOCKS', type: 'socks5-tls', server: '5.6.7.8', port: 1081, username: 'user', password: 'pass' }
+            ]
+        });
+
+        const parsed = yaml.load(rendered);
+        const socksGroup = parsed['proxy-groups'].find(group => group.name === SOCKS5_GROUP);
+        const fallback = parsed['proxy-groups'].find(group => group.name === '🔯 故障转移');
+        const manual = parsed['proxy-groups'].find(group => group.name === '👋 手动切换');
+        const select = parsed['proxy-groups'].find(group => group.name === '🚀 节点选择');
+        const ai = parsed['proxy-groups'].find(group => group.name === '🤖 AI 平台');
+
+        expect(socksGroup).toBeTruthy();
+        expect(socksGroup.type).toBe('select');
+        expect(socksGroup.proxies).toEqual(expect.arrayContaining(['Local-SOCKS', 'TLS-SOCKS']));
+        expect(fallback.proxies).toEqual(['HK-01']);
+        expect(manual.proxies).not.toEqual(expect.arrayContaining(['Local-SOCKS', 'TLS-SOCKS']));
+        expect(manual.proxies).toContain(SOCKS5_GROUP);
+        expect(select.proxies).toContain(SOCKS5_GROUP);
+        expect(select.proxies).not.toEqual(expect.arrayContaining(['Local-SOCKS', 'TLS-SOCKS']));
+        expect(ai.proxies).not.toEqual(expect.arrayContaining(['Local-SOCKS', 'TLS-SOCKS']));
     });
 
     it('keeps a builtin preset template AI group without injecting extra service groups', () => {

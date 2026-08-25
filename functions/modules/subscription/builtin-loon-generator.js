@@ -13,6 +13,7 @@
 import { urlToClashProxy, urlsToClashProxies } from '../../utils/url-to-clash.js';
 import { getUniqueName } from './name-utils.js';
 import { POLICY_GROUPS, getBuiltinRules, getRemoteProviderDefinitions, DEFAULT_SELECT_GROUP, DEFAULT_RELAY_GROUP, pruneProxyGroups } from './builtin-rules-provider.js';
+import { isSocks5Proxy } from './protocol-groups.js';
 
 /**
  * 清理控制字符
@@ -332,7 +333,7 @@ resource-parser = https://raw.githubusercontent.com/sub-store-org/Sub-Store/mast
             : group
         );
         if (!abstractGroups.some(group => group.name === '落地节点')) {
-            const proxyNames = proxiesWithMetadata.map(proxy => proxy.name);
+            const proxyNames = proxiesWithMetadata.filter(proxy => !isSocks5Proxy(proxy)).map(proxy => proxy.name);
             abstractGroups.splice(abstractGroups.findIndex(group => group.name === '入口节点') + 1, 0, {
                 name: '落地节点',
                 type: 'select',

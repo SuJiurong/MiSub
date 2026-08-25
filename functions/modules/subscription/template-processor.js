@@ -1,30 +1,44 @@
 import { groupNodeLinesByRegion } from './region-groups.js';
 import { AI_SERVICE_RULES } from './builtin-rules-provider.js';
 import { DNS_PROXY_GROUP } from './safe-dns.js';
+import { SOCKS5_GROUP, isSocks5Proxy, isSocks5GroupName, insertGroupBeforeDirect } from './protocol-groups.js';
 
 /**
  * 解析并扩展策略组中的正则过滤器
  * @param {Object} model - 统一模板模型
  */
+function socks5ProxyNames(model) {
+    return model.proxies.filter(isSocks5Proxy).map(proxy => proxy.name || proxy.tag).filter(Boolean);
+}
+
+function eligibleFilterNames(group, proxyNames, socksNameSet) {
+    if (isSocks5GroupName(group.name)) {
+        return proxyNames.filter(name => socksNameSet.has(name));
+    }
+    return proxyNames.filter(name => !socksNameSet.has(name));
+}
+
 function resolveGroupFilters(model) {
     const proxyNames = model.proxies.map(p => p.name || p.tag).filter(Boolean);
     if (proxyNames.length === 0) return;
+    const socksNameSet = new Set(socks5ProxyNames(model));
 
     model.groups.forEach(group => {
         if (!Array.isArray(group.filters) || group.filters.length === 0) return;
 
         group.members = group.members || [];
         const currentMembers = new Set(group.members);
+        const candidates = eligibleFilterNames(group, proxyNames, socksNameSet);
 
         group.filters.forEach(filter => {
             if (filter === '.*') {
-                proxyNames.forEach(name => currentMembers.add(name));
+                candidates.forEach(name => currentMembers.add(name));
                 return;
             }
 
             try {
                 const regex = new RegExp(filter, 'i');
-                proxyNames.forEach(name => {
+                candidates.forEach(name => {
                     if (regex.test(name)) {
                         currentMembers.add(name);
                     }
@@ -200,7 +214,12 @@ function ensureDnsProxyGroup(model) {
         existing.hidden = true;
         return;
     }
-    const proxyNames = model.proxies.map(proxy => proxy.name || proxy.tag).filter(Boolean);
+    const routingNames = model.proxies
+        .filter(proxy => !isSocks5Proxy(proxy))
+        .map(proxy => proxy.name || proxy.tag)
+        .filter(Boolean);
+    const socksNames = socks5ProxyNames(model);
+    const proxyNames = routingNames.length > 0 ? routingNames : socksNames;
     model.groups.push({
         name: DNS_PROXY_GROUP,
         type: 'url-test',
@@ -211,6 +230,53 @@ function ensureDnsProxyGroup(model) {
             url: 'http://www.gstatic.com/generate_204',
             interval: 300,
             tolerance: 50
+        }
+    });
+}
+
+function shouldStripSocks5Nodes(group) {
+    if (!group || group.name === DNS_PROXY_GROUP || isSocks5GroupName(group.name)) return false;
+    if (group.type === 'url-test' || group.type === 'fallback') return true;
+    if (Array.isArray(group.filters) && group.filters.some(filter => filter === '.*')) return true;
+    return /手动切换|手动选择/i.test(String(group.name || ''));
+}
+
+function shouldNestSocks5Group(group) {
+    if (!group || group.type === 'url-test' || group.type === 'fallback') return false;
+    if (group.name === DNS_PROXY_GROUP || isSocks5GroupName(group.name)) return false;
+    const name = String(group.name || '');
+    return /手动切换|手动选择|节点选择|总出口/i.test(name)
+        || /^(proxy|default|global|main)$/i.test(normalizeGroupSemanticName(name));
+}
+
+function ensureSocks5Policy(model) {
+    const socksNames = socks5ProxyNames(model);
+    if (socksNames.length === 0) return;
+
+    const socksNameSet = new Set(socksNames);
+    let socksGroup = model.groups.find(group => isSocks5GroupName(group.name));
+    if (!socksGroup) {
+        socksGroup = {
+            name: SOCKS5_GROUP,
+            type: 'select',
+            members: [...socksNames],
+            filters: [],
+            options: {}
+        };
+        model.groups.push(socksGroup);
+    } else {
+        socksGroup.members = Array.from(new Set([...(socksGroup.members || []).filter(Boolean), ...socksNames]));
+    }
+
+    model.groups.forEach(group => {
+        if (group === socksGroup || isSocks5GroupName(group.name)) return;
+        if (!Array.isArray(group.members)) return;
+
+        if (shouldStripSocks5Nodes(group)) {
+            group.members = group.members.filter(member => !socksNameSet.has(member));
+        }
+        if (shouldNestSocks5Group(group)) {
+            group.members = insertGroupBeforeDirect(group.members, socksGroup.name);
         }
     });
 }
@@ -329,10 +395,16 @@ export function applySmartModelOptimizations(model) {
     
     if (normalizedLevel !== 'none' && normalizedLevel !== 'base' && normalizedLevel) {
         // 3. 准备获取所有节点的名称，用于后续注入
-        const proxyNames = model.proxies.map(p => p.name || p.tag).filter(Boolean);
-        if (proxyNames.length > 0) {
+        const nodeEntries = model.proxies
+            .filter(proxy => !isSocks5Proxy(proxy))
+            .map(proxy => ({
+                tag: proxy.name || proxy.tag,
+                name: proxy.name || proxy.tag,
+                metadata: proxy.metadata
+            }))
+            .filter(entry => entry.tag);
+        if (nodeEntries.length > 0) {
             // 4. 识别地区分组并注入
-            const nodeEntries = proxyNames.map(name => ({ tag: name }));
             const regions = groupNodeLinesByRegion(nodeEntries);
             
             // 注入地区自动选优组
@@ -354,6 +426,9 @@ export function applySmartModelOptimizations(model) {
 
     // 5. 展开魔法占位符 (始终执行，确保模板标签被替换)
     expandMagicPlaceholders(model);
+
+    // SOCKS5 不适合 url-test/fallback 健康检查，单独成组，不要直接散落到手动切换/故障转移。
+    ensureSocks5Policy(model);
 
     // 6. 只有在非精简模式下才执行主选择器兜底注入
     if (normalizedLevel !== 'none' && normalizedLevel !== 'base' && normalizedLevel) {

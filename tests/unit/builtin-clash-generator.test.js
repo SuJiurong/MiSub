@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import yaml from 'js-yaml';
 import { generateBuiltinClashConfig, generateProxiesOnly } from '../../functions/modules/subscription/builtin-clash-generator.js';
+import { SOCKS5_GROUP } from '../../functions/modules/subscription/protocol-groups.js';
 
 describe('Clash 内置生成器', () => {
     it('应清理节点列表中的控制字符', () => {
@@ -118,5 +119,37 @@ describe('Clash 内置生成器', () => {
         }
         expect(parsed.rules).toContain('DOMAIN-SUFFIX,claude.ai,🤖 Claude');
         expect(parsed.rules).toContain('DOMAIN-SUFFIX,grok.com,🤖 Grok');
+    });
+
+    it('groups SOCKS5 proxies separately from auto-select, fallback and manual lists', () => {
+        const nodes = [
+            'trojan://password@1.2.3.4:443#HK-01',
+            'socks5://user:pass@5.6.7.8:1080#Local-SOCKS',
+            'socks5://user:pass@5.6.7.8:1081?tls=1#TLS-SOCKS',
+            'socks5://user:pass@5.6.7.8:1082#香港 SOCKS'
+        ].join('\n');
+        const parsed = yaml.load(generateBuiltinClashConfig(nodes));
+        const socksNames = parsed.proxies
+            .filter(proxy => proxy.type === 'socks5' || proxy.type === 'socks5-tls')
+            .map(proxy => proxy.name);
+        const socksGroup = parsed['proxy-groups'].find(group => group.name === SOCKS5_GROUP);
+        const fallback = parsed['proxy-groups'].find(group => group.name === '🔯 故障转移');
+        const auto = parsed['proxy-groups'].find(group => group.name === '♻️ 自动选择');
+        const manual = parsed['proxy-groups'].find(group => group.name === '👋 手动切换');
+        const select = parsed['proxy-groups'].find(group => group.name === '🚀 节点选择');
+        const hk = parsed['proxy-groups'].find(group => group.name === '🇭🇰 香港节点');
+
+        expect(socksNames.length).toBe(3);
+        expect(socksGroup?.type).toBe('select');
+        expect(socksGroup?.proxies).toEqual(expect.arrayContaining(socksNames));
+        expect(fallback.proxies).not.toEqual(expect.arrayContaining(socksNames));
+        expect(auto.proxies).not.toEqual(expect.arrayContaining(socksNames));
+        expect(manual.proxies).not.toEqual(expect.arrayContaining(socksNames));
+        expect(manual.proxies).toContain(SOCKS5_GROUP);
+        expect(select.proxies).toContain(SOCKS5_GROUP);
+        expect(select.proxies.indexOf(SOCKS5_GROUP)).toBeLessThan(select.proxies.indexOf('DIRECT'));
+        if (hk) {
+            expect(hk.proxies).not.toEqual(expect.arrayContaining(socksNames));
+        }
     });
 });

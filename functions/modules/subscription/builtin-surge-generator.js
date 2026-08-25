@@ -10,6 +10,7 @@
 import { urlToClashProxy, urlsToClashProxies } from '../../utils/url-to-clash.js';
 import { getUniqueName } from './name-utils.js';
 import { POLICY_GROUPS, getBuiltinRules, getRemoteProviderDefinitions, DEFAULT_SELECT_GROUP, DEFAULT_RELAY_GROUP, pruneProxyGroups } from './builtin-rules-provider.js';
+import { isSocks5Proxy } from './protocol-groups.js';
 
 /**
  * 清理字符串中的控制字符（保留换行和制表符）
@@ -480,6 +481,7 @@ dns-server = 119.29.29.29, 223.5.5.5, system`);
     const proxiesForGrouping = finalProxyNames.map((name, index) => ({
         tag: name,
         name: name,
+        type: finalResults[index].clashProxy?.type,
         metadata: finalResults[index].clashProxy?.metadata || {}
     }));
     
@@ -491,7 +493,7 @@ dns-server = 119.29.29.29, 223.5.5.5, system`);
             : group
         );
         if (!abstractGroups.some(group => group.name === '落地节点')) {
-            const proxyNames = proxiesForGrouping.map(proxy => proxy.name);
+            const proxyNames = proxiesForGrouping.filter(proxy => !isSocks5Proxy(proxy)).map(proxy => proxy.name);
             abstractGroups.splice(abstractGroups.findIndex(group => group.name === '入口节点') + 1, 0, {
                 name: '落地节点',
                 type: 'select',
