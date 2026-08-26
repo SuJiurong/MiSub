@@ -161,8 +161,13 @@ export class ProcessorService {
         }
 
         // Handle built-in generation with optional templates
+        const templateKind = templateSource?.kind;
+        const fallbackRuleLevel = (templateKind === 'custom' || templateKind === 'remote')
+            ? 'none'
+            : builtinOptions.ruleLevel;
         const builtinProxyContent = transformBuiltinSubscription(combinedNodeList, targetFormat, {
             ...builtinOptions,
+            ruleLevel: fallbackRuleLevel,
             managedConfigUrl
         });
 

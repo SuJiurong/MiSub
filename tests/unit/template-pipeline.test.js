@@ -143,6 +143,7 @@ MATCH,Main
         ]));
         expect(parsed['proxy-groups'].find(group => group.name === 'Main').proxies).toContain('DIRECT');
         expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
+        expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,openai.com,🤖 OpenAI');
     });
 
     it('puts SOCKS5 nodes into a dedicated group instead of fallback/manual catch-all groups', () => {

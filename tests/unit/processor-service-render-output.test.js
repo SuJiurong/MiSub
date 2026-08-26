@@ -164,6 +164,9 @@ rules:
         expect(result.content).not.toContain('rule-providers:');
         expect(result.content).not.toContain('RULE-SET,');
         expect(result.content).toContain('MATCH,🚀 节点选择');
+        expect(result.content).not.toContain('🤖 OpenAI');
+        expect(result.content).not.toContain('🤖 Claude');
+        expect(result.content).not.toContain('🤖 智能 AI');
     });
 
     it('preserves managed config header for builtin quanx output', async () => {

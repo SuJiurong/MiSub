@@ -1,5 +1,4 @@
 import { groupNodeLinesByRegion } from './region-groups.js';
-import { AI_SERVICE_RULES } from './builtin-rules-provider.js';
 import { DNS_PROXY_GROUP } from './safe-dns.js';
 import { SOCKS5_GROUP, isSocks5Proxy, isSocks5GroupName, insertGroupBeforeDirect } from './protocol-groups.js';
 
@@ -281,94 +280,6 @@ function ensureSocks5Policy(model) {
     });
 }
 
-function isAiGroupName(name) {
-    const value = String(name || '');
-    return /人工智能|智能\s*ai|(?:^|[^a-z])(ai|claude|openai|gemini|grok|mistral|deepseek|perplexity|copilot)(?=$|[^a-z])/i.test(value);
-}
-
-function proxyOnlyMembers(members) {
-    return Array.from(new Set((Array.isArray(members) ? members : []).filter(member =>
-        !['DIRECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase())
-    )));
-}
-
-function ensureAiPolicy(model) {
-    const aiGroups = model.groups.filter(group => isAiGroupName(group.name));
-    const mainGroup = model.groups.find(group => !isAiGroupName(group.name) && /选择|proxy|default|global|main/i.test(group.name));
-    const fallbackMembers = proxyOnlyMembers(mainGroup?.members);
-    const preferredMembers = proxyOnlyMembers(aiGroups[0]?.members);
-    const nodeMembers = model.proxies.map(proxy => proxy.name || proxy.tag).filter(Boolean);
-    const aiMembers = Array.from(new Set([
-        ...(preferredMembers.length > 0 ? preferredMembers : fallbackMembers),
-        ...(preferredMembers.length > 0 || fallbackMembers.length > 0 ? [] : nodeMembers)
-    ]));
-    const nodeCandidates = aiMembers.length > 0 ? aiMembers : ['REJECT'];
-
-    aiGroups.forEach(group => {
-        group.members = proxyOnlyMembers(group.members);
-        if (group.members.length === 0) group.members = ['REJECT'];
-    });
-
-    const existingNames = new Set(model.groups.map(group => group.name));
-    if (!existingNames.has('🤖 AI 自动')) {
-        model.groups.push({
-            name: '🤖 AI 自动',
-            type: 'url-test',
-            members: nodeCandidates,
-            filters: [],
-            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
-        });
-        existingNames.add('🤖 AI 自动');
-    }
-    if (!existingNames.has('🤖 AI 故障转移')) {
-        model.groups.push({
-            name: '🤖 AI 故障转移',
-            type: 'fallback',
-            members: nodeCandidates,
-            filters: [],
-            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
-        });
-        existingNames.add('🤖 AI 故障转移');
-    }
-    if (!existingNames.has('🤖 智能 AI')) {
-        model.groups.push({
-            name: '🤖 智能 AI',
-            type: 'select',
-            members: ['🤖 AI 自动', '🤖 AI 故障转移']
-        });
-        existingNames.add('🤖 智能 AI');
-    }
-    AI_SERVICE_RULES.forEach(service => {
-        const groupName = `🤖 ${service.name}`;
-        if (!existingNames.has(groupName)) {
-            model.groups.push({
-                name: groupName,
-                type: 'select',
-                members: ['🤖 AI 自动', '🤖 AI 故障转移'],
-                filters: [],
-                options: {}
-            });
-            existingNames.add(groupName);
-        }
-    });
-
-    const existingRules = new Set(model.rules.map(rule => `${rule.type}|${rule.value}|${rule.policy}`));
-    const aiRules = [];
-    AI_SERVICE_RULES.forEach(service => service.domains.forEach(domain => {
-        const rule = {
-            type: 'domain-suffix',
-            value: domain,
-            policy: `🤖 ${service.name}`,
-            source: 'inline',
-            extras: []
-        };
-        const key = `${rule.type}|${rule.value}|${rule.policy}`;
-        if (!existingRules.has(key)) aiRules.push(rule);
-    }));
-    // 保留模板作者已有的精确规则优先级；新服务规则只补缺失项。
-    model.rules = [...model.rules, ...aiRules];
-}
-
 /**
  * 模板模型智能优化器（主入口）
  * 包含：自动解析过滤器、注入地区组、展开占位符、清理无效引用及空组
@@ -385,14 +296,9 @@ export function applySmartModelOptimizations(model) {
 
     // 2. 检查等级。如果是 none (完全禁用)，我们只执行占位符展开和清理，不进行智能注入。
     const normalizedLevel = (ruleLevel || '').toLowerCase();
-    const isIniTemplate = String(model.meta?.source || '').toLowerCase() === 'ini';
+    // 模板方案（自定义 INI / 预设 INI）只保留作者手写的组。
+    // OpenAI/Claude 等内置 AI 组只属于内置自动分流 POLICY_GROUPS，禁止在这里追加。
 
-    // INI 配置方案（含订阅组里选的 builtin 预设 / 自定义模板）已经自带策略组。
-    // 再注入 OpenAI/Claude 等内置 AI 组会叠在模板的「AI 服务 / 电报 / 漏网之鱼」之上。
-    if (normalizedLevel !== 'none' && !isIniTemplate) {
-        ensureAiPolicy(model);
-    }
-    
     if (normalizedLevel !== 'none' && normalizedLevel !== 'base' && normalizedLevel) {
         // 3. 准备获取所有节点的名称，用于后续注入
         const nodeEntries = model.proxies

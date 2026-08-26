@@ -121,6 +121,18 @@ describe('Clash 内置生成器', () => {
         expect(parsed.rules).toContain('DOMAIN-SUFFIX,grok.com,🤖 Grok');
     });
 
+    it('does not inject builtin AI groups when ruleLevel is none', () => {
+        const parsed = yaml.load(generateBuiltinClashConfig('trojan://password@example.com:443#US-01', { ruleLevel: 'none' }));
+        const groupNames = parsed['proxy-groups'].map(group => group.name);
+
+        expect(groupNames).toContain('🚀 节点选择');
+        expect(groupNames).not.toEqual(expect.arrayContaining([
+            '🤖 AI 自动', '🤖 AI 故障转移', '🤖 智能 AI', '🤖 OpenAI', '🤖 Claude', '🤖 Gemini'
+        ]));
+        expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,claude.ai,🤖 Claude');
+        expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,openai.com,🤖 OpenAI');
+    });
+
     it('groups SOCKS5 proxies separately from auto-select, fallback and manual lists', () => {
         const nodes = [
             'trojan://password@1.2.3.4:443#HK-01',

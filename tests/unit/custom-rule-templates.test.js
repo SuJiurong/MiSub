@@ -103,7 +103,33 @@ describe('自定义规则模板 Phase 1 后端模型/API/渲染', () => {
         expect(fetch).not.toHaveBeenCalled();
         expect(result.contentType).toBe('application/x-yaml; charset=utf-8');
         const parsed = yaml.load(result.content);
-        expect(parsed['proxy-groups'].some(group => group.name === '🚀 节点选择')).toBe(true);
+        const groupNames = parsed['proxy-groups'].map(group => group.name);
+        expect(groupNames).toContain('🚀 节点选择');
+        expect(groupNames).not.toEqual(expect.arrayContaining([
+            '🤖 AI 自动', '🤖 AI 故障转移', '🤖 智能 AI', '🤖 OpenAI', '🤖 Claude', '🤖 Gemini'
+        ]));
         expect(parsed.rules).toContain('MATCH,🚀 节点选择');
+        expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
+        expect(parsed.rules).not.toContain('DOMAIN-SUFFIX,openai.com,🤖 OpenAI');
+    });
+
+    it('does not fall back to builtin AI groups when a custom template is missing', async () => {
+        const result = await ProcessorService.renderOutput({
+            targetFormat: 'clash',
+            combinedNodeList: NODE_LIST,
+            subName: 'Demo',
+            config: { UpdateInterval: 86400 },
+            builtinOptions: { ruleLevel: 'std', enableUdp: true, skipCertVerify: false },
+            templateSource: { kind: 'custom', value: 'missing-template' },
+            managedConfigUrl: 'https://example.com/sub',
+            storageAdapter: createMemoryStorage()
+        });
+
+        const parsed = yaml.load(result.content);
+        const groupNames = parsed['proxy-groups'].map(group => group.name);
+        expect(groupNames).not.toEqual(expect.arrayContaining([
+            '🤖 AI 自动', '🤖 AI 故障转移', '🤖 智能 AI', '🤖 OpenAI', '🤖 Claude', '🤖 Gemini'
+        ]));
+        expect(parsed.rules || []).not.toContain('DOMAIN-SUFFIX,openai.com,🤖 OpenAI');
     });
 });

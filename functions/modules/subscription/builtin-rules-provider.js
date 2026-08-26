@@ -181,20 +181,24 @@ function _generateRegionGroups(proxies, options = {}) {
 /**
  * 策略组工厂
  */
+function corePolicyGroups(proxies, { includeAi = false } = {}) {
+    const { routingNames, socksNames, dnsNames } = routingContext(proxies);
+    return [
+        dnsProxyGroup(dnsNames),
+        { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: withSocks5Group([AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'], socksNames) },
+        { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: routingNames },
+        { name: FALLBACK_GROUP, type: 'fallback', proxies: routingNames },
+        { name: MANUAL_SELECT_GROUP, type: 'select', proxies: withSocks5Group(routingNames, socksNames) },
+        ...socks5SelectGroup(socksNames),
+        ...(includeAi ? aiPolicyGroups(routingNames, []) : [])
+    ];
+}
+
 export const POLICY_GROUPS = {
+    // 自定义/远程模板失败时的回落：不要带内置 AI 组。
+    NONE: (proxies) => corePolicyGroups(proxies, { includeAi: false }),
     // 基础配置：精简版
-    BASE: (proxies, options = {}) => {
-        const { routingNames, socksNames, dnsNames } = routingContext(proxies);
-        return [
-            dnsProxyGroup(dnsNames),
-            { name: DEFAULT_SELECT_GROUP, type: 'select', proxies: withSocks5Group([AUTO_SELECT_GROUP, FALLBACK_GROUP, MANUAL_SELECT_GROUP, 'DIRECT'], socksNames) },
-            { name: AUTO_SELECT_GROUP, type: 'url-test', proxies: routingNames },
-            { name: FALLBACK_GROUP, type: 'fallback', proxies: routingNames },
-            { name: MANUAL_SELECT_GROUP, type: 'select', proxies: withSocks5Group(routingNames, socksNames) },
-            ...socks5SelectGroup(socksNames),
-            ...aiPolicyGroups(routingNames, [])
-        ];
-    },
+    BASE: (proxies) => corePolicyGroups(proxies, { includeAi: true }),
     // 标准配置：全能型
     STD: (proxies, options = {}) => {
         const { routingNames, socksNames, dnsNames } = routingContext(proxies);
@@ -365,6 +369,10 @@ export const REMOTE_SOURCES = {
  * 分流规则集 (通过 RULE-SET 引用远程源)
  */
 export const RULE_SETS = {
+    NONE: [
+        'GEOIP,CN,DIRECT',
+        `MATCH,${DEFAULT_SELECT_GROUP}`
+    ],
     BASE: [
         ...AI_DOMAIN_RULE_LINES,
         'RULE-SET,AI,🤖 智能 AI',
