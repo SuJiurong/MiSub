@@ -16,12 +16,12 @@ jobs:
     if: ${{ github.event.repository.fork }}
 
     steps:
-      - name: Checkout fork
+      - name: Checkout custom branch
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.SYNC_PAT != '' && secrets.SYNC_PAT || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-          ref: main
+          ref: custom
 
       - name: Configure Git and remotes
         env:
@@ -32,7 +32,7 @@ jobs:
           git config user.name "GitHub Actions Bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git checkout main || git checkout -b main
+          git checkout -B custom origin/custom
 
           if git remote get-url upstream >/dev/null 2>&1; then
             git remote set-url upstream https://github.com/imzyb/MiSub.git
@@ -47,32 +47,38 @@ jobs:
             echo "⚠️ 未配置 SYNC_PAT，将使用默认 GITHUB_TOKEN。"
           fi
 
-          git fetch --prune origin main
+          git fetch --prune origin custom
           git fetch --prune upstream main
 
-      - name: Mirror upstream main
+      - name: Merge upstream into custom
         env:
           SYNC_PAT: ${{ secrets.SYNC_PAT }}
         run: |
           set -euo pipefail
 
-          ORIGIN_SHA="$(git rev-parse origin/main)"
+          ORIGIN_SHA="$(git rev-parse origin/custom)"
           UPSTREAM_SHA="$(git rev-parse upstream/main)"
 
-          if [ "${ORIGIN_SHA}" = "${UPSTREAM_SHA}" ]; then
-            echo "✨ Fork 已与上游完全一致，无需同步。"
+          if git merge-base --is-ancestor "${UPSTREAM_SHA}" "${ORIGIN_SHA}"; then
+            echo "✨ custom 已包含上游 main 的全部更新，无需同步。"
             exit 0
           fi
 
           if [ -z "${SYNC_PAT:-}" ]; then
-            WORKFLOW_DIFF="$(git diff --name-only "${ORIGIN_SHA}" "${UPSTREAM_SHA}" -- .github/workflows || true)"
+            BASE_SHA="$(git merge-base "${ORIGIN_SHA}" "${UPSTREAM_SHA}")"
+            WORKFLOW_DIFF="$(git diff --name-only "${BASE_SHA}" "${UPSTREAM_SHA}" -- .github/workflows || true)"
             if [ -n "${WORKFLOW_DIFF}" ]; then
-              echo "::notice title=Fork Sync skipped::上游包含 workflow 文件变更，默认 GITHUB_TOKEN 不能创建或更新 workflow 文件。请在 fork 仓库配置 secret：SYNC_PAT（repo + workflow 权限）后手动重新运行，或在网页使用 Sync fork / Discard commits 对齐上游。"
+              echo "::notice title=Fork Sync skipped::上游包含 workflow 文件变更，默认 GITHUB_TOKEN 不能创建或更新 workflow 文件。请在 fork 仓库配置 secret：SYNC_PAT（repo + workflow 权限）后手动重新运行。"
               exit 0
             fi
           fi
 
-          echo "🚀 正在镜像上游 main，fork 本地 main 上的额外提交会被丢弃。"
-          git reset --hard upstream/main
-          git push --force-with-lease origin main
-          echo "✅ Fork main 已镜像到上游 main。"
+          if ! git merge --no-commit --no-ff upstream/main; then
+            git merge --abort || true
+            echo "::error title=Fork Sync conflict::上游更新与 custom 的定制改动冲突；未推送任何内容。请手动解决冲突后再运行同步。"
+            exit 1
+          fi
+
+          git commit -m "chore: merge upstream/main into custom"
+          git push origin custom
+          echo "✅ 上游 main 已合并到 custom；定制提交已保留。"
