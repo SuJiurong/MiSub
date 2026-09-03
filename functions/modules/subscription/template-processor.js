@@ -1,4 +1,5 @@
 import { groupNodeLinesByRegion } from './region-groups.js';
+import { AI_SERVICE_RULES } from './builtin-rules-provider.js';
 import { DNS_PROXY_GROUP } from './safe-dns.js';
 import { SOCKS5_GROUP, isSocks5Proxy, isSocks5GroupName, insertGroupBeforeDirect } from './protocol-groups.js';
 
@@ -233,6 +234,97 @@ function ensureDnsProxyGroup(model) {
     });
 }
 
+function isAiGroupName(name) {
+    const value = String(name || '');
+    return /人工智能|智能\s*ai|(?:^|[^a-z])(ai|claude|openai|gemini|grok|mistral|deepseek|perplexity|copilot)(?=$|[^a-z])/i.test(value);
+}
+
+function proxyOnlyMembers(members) {
+    return Array.from(new Set((Array.isArray(members) ? members : []).filter(member =>
+        !['DIRECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase())
+    )));
+}
+
+function ensureAiPolicy(model) {
+    const aiGroups = model.groups.filter(group => isAiGroupName(group.name));
+    const mainGroup = model.groups.find(group => !isAiGroupName(group.name) && /选择|proxy|default|global|main/i.test(group.name));
+    const fallbackMembers = proxyOnlyMembers(mainGroup?.members);
+    const preferredMembers = proxyOnlyMembers(aiGroups[0]?.members);
+    const nodeMembers = model.proxies
+        .filter(proxy => !isSocks5Proxy(proxy))
+        .map(proxy => proxy.name || proxy.tag)
+        .filter(Boolean);
+    const aiMembers = Array.from(new Set([
+        ...(preferredMembers.length > 0 ? preferredMembers : fallbackMembers),
+        ...(preferredMembers.length > 0 || fallbackMembers.length > 0 ? [] : nodeMembers)
+    ]));
+    const nodeCandidates = aiMembers.length > 0 ? aiMembers : ['REJECT'];
+
+    aiGroups.forEach(group => {
+        group.members = proxyOnlyMembers(group.members);
+        if (group.members.length === 0) group.members = ['REJECT'];
+    });
+
+    const existingNames = new Set(model.groups.map(group => group.name));
+    if (!existingNames.has('🤖 AI 自动')) {
+        model.groups.push({
+            name: '🤖 AI 自动',
+            type: 'url-test',
+            members: nodeCandidates,
+            filters: [],
+            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
+        });
+        existingNames.add('🤖 AI 自动');
+    }
+    if (!existingNames.has('🤖 AI 故障转移')) {
+        model.groups.push({
+            name: '🤖 AI 故障转移',
+            type: 'fallback',
+            members: nodeCandidates,
+            filters: [],
+            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
+        });
+        existingNames.add('🤖 AI 故障转移');
+    }
+    if (!existingNames.has('🤖 智能 AI')) {
+        model.groups.push({
+            name: '🤖 智能 AI',
+            type: 'select',
+            members: ['🤖 AI 自动', '🤖 AI 故障转移']
+        });
+        existingNames.add('🤖 智能 AI');
+    }
+    AI_SERVICE_RULES.forEach(service => {
+        const groupName = `🤖 ${service.name}`;
+        if (!existingNames.has(groupName)) {
+            model.groups.push({
+                name: groupName,
+                type: 'select',
+                members: ['🤖 AI 自动', '🤖 AI 故障转移'],
+                filters: [],
+                options: {}
+            });
+            existingNames.add(groupName);
+        }
+    });
+
+    const existingRules = new Set(model.rules.map(rule => `${rule.type}|${rule.value}|${rule.policy}`));
+    const aiRules = [];
+    AI_SERVICE_RULES.forEach(service => service.domains.forEach(domain => {
+        const rule = {
+            type: 'domain-suffix',
+            value: domain,
+            policy: `🤖 ${service.name}`,
+            source: 'inline',
+            extras: []
+        };
+        const key = `${rule.type}|${rule.value}|${rule.policy}`;
+        if (!existingRules.has(key)) aiRules.push(rule);
+    }));
+    // 保留模板作者已有的精确规则优先级；新服务规则只补缺失项。
+    model.rules = [...model.rules, ...aiRules];
+}
+
 function shouldStripSocks5Nodes(group) {
     if (!group || group.name === DNS_PROXY_GROUP || isSocks5GroupName(group.name)) return false;
     if (group.type === 'url-test' || group.type === 'fallback') return true;
@@ -286,20 +378,29 @@ function ensureSocks5Policy(model) {
  * @param {Object} model - 统一模板模型
  */
 export function applySmartModelOptimizations(model) {
-    const { ruleLevel } = model.meta;
-    
+    const { ruleLevel } = model.meta || {};
+    const normalizedLevel = (ruleLevel || '').toLowerCase();
+    const isCustomOrNone = !normalizedLevel || normalizedLevel === 'none';
+
     // 1. 执行现有的正则过滤器解析 (始终执行)
     resolveGroupFilters(model);
 
-    // DNS 出站不能继承普通主组的 DIRECT 选项，否则 TUN 下会泄露或形成递归。
-    ensureDnsProxyGroup(model);
+    // 2. DNS 出口策略组注入：
+    // 只要没用自定义 DNS（使用作者默认 Safe DNS），就保证注入 DNS 出口策略组；
+    // 只要自定义配置了 DNS，就不跟随注入 DNS 出口策略组。
+    const hasCustomDns = Boolean(model.settings?.customDnsOverride && String(model.settings.customDnsOverride).trim());
+    if (!hasCustomDns) {
+        ensureDnsProxyGroup(model);
+    }
 
-    // 2. 检查等级。如果是 none (完全禁用)，我们只执行占位符展开和清理，不进行智能注入。
-    const normalizedLevel = (ruleLevel || '').toLowerCase();
-    // 模板方案（自定义 INI / 预设 INI）只保留作者手写的组。
-    // OpenAI/Claude 等内置 AI 组只属于内置自动分流 POLICY_GROUPS，禁止在这里追加。
+    // 3. AI 服务分组与分流规则注入：
+    // 仅在非纯自定义模板模式（启用内置分流）下才注入
+    if (!isCustomOrNone) {
+        ensureAiPolicy(model);
+    }
 
-    if (normalizedLevel !== 'none' && normalizedLevel !== 'base' && normalizedLevel) {
+    // 4. 检查等级。如果是 none (完全禁用)，我们只执行占位符展开和清理，不进行智能注入。
+    if (!isCustomOrNone && normalizedLevel !== 'base') {
         // 3. 准备获取所有节点的名称，用于后续注入
         const nodeEntries = model.proxies
             .filter(proxy => !isSocks5Proxy(proxy))
@@ -337,7 +438,7 @@ export function applySmartModelOptimizations(model) {
     ensureSocks5Policy(model);
 
     // 6. 只有在非精简模式下才执行主选择器兜底注入
-    if (normalizedLevel !== 'none' && normalizedLevel !== 'base' && normalizedLevel) {
+    if (!isCustomOrNone && normalizedLevel !== 'base') {
         const mainGroupCandidates = model.groups.filter(g => 
             /选择|Proxy|Default|Global|Main|select/i.test(g.name)
         );

@@ -130,6 +130,7 @@ Telegram = select, HK-01
 [Rule]
 MATCH,Main
         `, {
+            ruleLevel: 'none',
             proxies: [
                 { name: 'HK-01', type: 'trojan', server: '1.1.1.1', port: 443, password: 'pass' }
             ]
@@ -188,7 +189,8 @@ MATCH,🚀 节点选择
         const builtinTemplate = getBuiltinTemplate('clash_misub_media_ai');
         const rendered = renderClashFromIniTemplate(builtinTemplate.content, {
             nodeList: 'trojan://password@1.2.3.4:443#HK-01',
-            targetFormat: 'clash'
+            targetFormat: 'clash',
+            ruleLevel: 'none'
         });
         const parsed = yaml.load(rendered);
         const groupNames = parsed['proxy-groups'].map(group => group.name);
@@ -205,6 +207,29 @@ MATCH,🚀 节点选择
         expect(parsed['proxy-groups']
             .filter(group => group.name !== DNS_PROXY_GROUP)
             .every(group => !group.proxies?.includes(DNS_PROXY_GROUP))).toBe(true);
+    });
+
+    it('injects builtin AI policy groups onto INI templates when ruleLevel is std', () => {
+        const rendered = renderClashFromIniTemplate(`
+[Proxy Group]
+Main = select, HK-01, DIRECT
+
+[Rule]
+MATCH,Main
+        `, {
+            ruleLevel: 'std',
+            proxies: [
+                { name: 'HK-01', type: 'trojan', server: '1.1.1.1', port: 443, password: 'pass' }
+            ]
+        });
+
+        const parsed = yaml.load(rendered);
+        const groupNames = parsed['proxy-groups'].map(group => group.name);
+        expect(groupNames).toEqual(expect.arrayContaining([
+            'Main', '🤖 AI 自动', '🤖 AI 故障转移', '🤖 智能 AI', '🤖 OpenAI', '🤖 Claude'
+        ]));
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,openai.com,🤖 OpenAI');
+        expect(parsed.rules).toContain('DOMAIN-SUFFIX,anthropic.com,🤖 Claude');
     });
 
     it('does not inject builtin AI policy groups when ruleLevel is none', () => {

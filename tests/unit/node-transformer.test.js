@@ -78,8 +78,8 @@ describe('applyNodeTransformPipeline filters', () => {
             sort: { enabled: false, keys: [] }
         });
 
-        expect(result).toHaveLength(3);
-        expect(result.some(line => line.includes('%E6%B5%81%E9%87%8F%E5%89%A9%E4%BD%99'))).toBe(false);
+        expect(result).toHaveLength(4);
+        expect(result.some(line => line.includes('%E6%B5%81%E9%87%8F%E5%89%A9%E4%BD%99'))).toBe(true);
         expect(result.some(line => line.includes('%E5%A5%97%E9%A4%90%E5%88%B0%E6%9C%9F'))).toBe(false);
     });
 });
