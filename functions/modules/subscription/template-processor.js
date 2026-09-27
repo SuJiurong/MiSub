@@ -19,18 +19,18 @@ function eligibleFilterNames(group, proxyNames, socksNameSet) {
 }
 
 function resolveGroupFilters(model) {
-    const proxyNames = model.proxies.map(p => p.name || p.tag).filter(Boolean);
+    const proxyNames = model.proxies.map((p) => p.name || p.tag).filter(Boolean);
     if (proxyNames.length === 0) return;
     const socksNameSet = new Set(socks5ProxyNames(model));
 
-    model.groups.forEach(group => {
+    model.groups.forEach((group) => {
         if (!Array.isArray(group.filters) || group.filters.length === 0) return;
 
         group.members = group.members || [];
         const currentMembers = new Set(group.members);
         const candidates = eligibleFilterNames(group, proxyNames, socksNameSet);
 
-        group.filters.forEach(filter => {
+        group.filters.forEach((filter) => {
             if (filter === '.*') {
                 candidates.forEach(name => currentMembers.add(name));
                 return;
@@ -62,21 +62,21 @@ function pruneEmptyGroups(model) {
         changed = false;
         const emptyGroupNames = new Set(
             model.groups
-                .filter(g => (!Array.isArray(g.members) || g.members.length === 0))
-                .map(g => g.name)
+                .filter((g) => !Array.isArray(g.members) || g.members.length === 0)
+                .map((g) => g.name)
         );
 
         if (emptyGroupNames.size === 0) break;
 
         // 1. 移除空组本身
         const initialCount = model.groups.length;
-        model.groups = model.groups.filter(g => !emptyGroupNames.has(g.name));
+        model.groups = model.groups.filter((g) => !emptyGroupNames.has(g.name));
         if (model.groups.length !== initialCount) changed = true;
 
         // 2. 从其它组的成员列表中移除对空组的引用
-        model.groups.forEach(group => {
+        model.groups.forEach((group) => {
             if (Array.isArray(group.members)) {
-                const newMembers = group.members.filter(m => !emptyGroupNames.has(m));
+                const newMembers = group.members.filter((m) => !emptyGroupNames.has(m));
                 if (newMembers.length !== group.members.length) {
                     group.members = newMembers;
                     changed = true;
@@ -86,7 +86,7 @@ function pruneEmptyGroups(model) {
 
         // 3. 从规则列表中移除指向空组的规则
         const initialRuleCount = model.rules.length;
-        model.rules = model.rules.filter(rule => !emptyGroupNames.has(rule.policy));
+        model.rules = model.rules.filter((rule) => !emptyGroupNames.has(rule.policy));
         if (model.rules.length !== initialRuleCount) changed = true;
     }
 }
@@ -103,15 +103,17 @@ function hasEquivalentRegionGroup(model, region) {
     const regionTags = new Set(region.tags || []);
     const normalizedRegionName = normalizeGroupSemanticName(region.name);
 
-    return model.groups.some(group => {
+    return model.groups.some((group) => {
         const normalizedGroupName = normalizeGroupSemanticName(group.name);
         if (normalizedGroupName === normalizedRegionName) return true;
 
         const members = Array.isArray(group.members) ? group.members : [];
         if (members.length === 0) return false;
 
-        const overlapCount = members.filter(member => regionTags.has(member)).length;
-        return overlapCount > 0 && overlapCount === members.length && overlapCount === regionTags.size;
+        const overlapCount = members.filter((member) => regionTags.has(member)).length;
+        return (
+            overlapCount > 0 && overlapCount === members.length && overlapCount === regionTags.size
+        );
     });
 }
 
@@ -119,7 +121,7 @@ function dedupeGroupsByName(model) {
     const mergedGroups = [];
     const seen = new Map();
 
-    model.groups.forEach(group => {
+    model.groups.forEach((group) => {
         const name = String(group.name || '').trim();
         if (!name) return;
 
@@ -127,9 +129,16 @@ function dedupeGroupsByName(model) {
             const normalized = {
                 ...group,
                 name,
-                members: Array.isArray(group.members) ? Array.from(new Set(group.members.filter(Boolean))) : [],
-                filters: Array.isArray(group.filters) ? Array.from(new Set(group.filters.filter(Boolean))) : [],
-                options: typeof group.options === 'object' && group.options !== null ? { ...group.options } : {}
+                members: Array.isArray(group.members)
+                    ? Array.from(new Set(group.members.filter(Boolean)))
+                    : [],
+                filters: Array.isArray(group.filters)
+                    ? Array.from(new Set(group.filters.filter(Boolean)))
+                    : [],
+                options:
+                    typeof group.options === 'object' && group.options !== null
+                        ? { ...group.options }
+                        : {},
             };
             seen.set(name, normalized);
             mergedGroups.push(normalized);
@@ -137,11 +146,15 @@ function dedupeGroupsByName(model) {
         }
 
         const existing = seen.get(name);
-        existing.members = Array.from(new Set([...(existing.members || []), ...((group.members || []).filter(Boolean))]));
-        existing.filters = Array.from(new Set([...(existing.filters || []), ...((group.filters || []).filter(Boolean))]));
+        existing.members = Array.from(
+            new Set([...(existing.members || []), ...(group.members || []).filter(Boolean)])
+        );
+        existing.filters = Array.from(
+            new Set([...(existing.filters || []), ...(group.filters || []).filter(Boolean)])
+        );
         existing.options = {
             ...(existing.options || {}),
-            ...((typeof group.options === 'object' && group.options !== null) ? group.options : {})
+            ...(typeof group.options === 'object' && group.options !== null ? group.options : {}),
         };
 
         if ((!existing.type || existing.type === 'select') && group.type) {
@@ -170,11 +183,11 @@ function expandMagicPlaceholders(model) {
             .map(g => g.name)
     ));
 
-    model.groups.forEach(group => {
+    model.groups.forEach((group) => {
         if (!Array.isArray(group.members)) return;
 
         const newMembers = [];
-        group.members.forEach(member => {
+        group.members.forEach((member) => {
             if (member === '<%regionStrategyChain%>') {
                 newMembers.push(...regionNames);
             } else if (member === '<%protocolStrategyChain%>') {
@@ -193,12 +206,13 @@ function expandMagicPlaceholders(model) {
  */
 function pruneInvalidMembers(model) {
     const validTargetNames = new Set([
-        ...model.proxies.map(p => p.name || p.tag),
-        ...model.groups.map(g => g.name),
-        'DIRECT', 'REJECT'
+        ...model.proxies.map((p) => p.name || p.tag),
+        ...model.groups.map((g) => g.name),
+        'DIRECT',
+        'REJECT',
     ]);
 
-    model.groups.forEach(group => {
+    model.groups.forEach((group) => {
         if (Array.isArray(group.members)) {
             group.members = group.members.filter(m => {
                 if (m === DNS_PROXY_GROUP && group.name !== DNS_PROXY_GROUP) return false;
@@ -229,25 +243,34 @@ function ensureDnsProxyGroup(model) {
         options: {
             url: 'http://www.gstatic.com/generate_204',
             interval: 300,
-            tolerance: 50
-        }
+            tolerance: 50,
+        },
     });
 }
 
 function isAiGroupName(name) {
     const value = String(name || '');
-    return /人工智能|智能\s*ai|(?:^|[^a-z])(ai|claude|openai|gemini|grok|mistral|deepseek|perplexity|copilot)(?=$|[^a-z])/i.test(value);
+    return /人工智能|智能\s*ai|(?:^|[^a-z])(ai|claude|openai|gemini|grok|mistral|deepseek|perplexity|copilot)(?=$|[^a-z])/i.test(
+        value
+    );
 }
 
 function proxyOnlyMembers(members) {
-    return Array.from(new Set((Array.isArray(members) ? members : []).filter(member =>
-        !['DIRECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase())
-    )));
+    return Array.from(
+        new Set(
+            (Array.isArray(members) ? members : []).filter(
+                (member) =>
+                    !['DIRECT', 'REJECT-DROP', 'PASS'].includes(String(member).toUpperCase())
+            )
+        )
+    );
 }
 
 function ensureAiPolicy(model) {
-    const aiGroups = model.groups.filter(group => isAiGroupName(group.name));
-    const mainGroup = model.groups.find(group => !isAiGroupName(group.name) && /选择|proxy|default|global|main/i.test(group.name));
+    const aiGroups = model.groups.filter((group) => isAiGroupName(group.name));
+    const mainGroup = model.groups.find(
+        (group) => !isAiGroupName(group.name) && /选择|proxy|default|global|main/i.test(group.name)
+    );
     const fallbackMembers = proxyOnlyMembers(mainGroup?.members);
     const preferredMembers = proxyOnlyMembers(aiGroups[0]?.members);
     const nodeMembers = model.proxies
@@ -260,19 +283,19 @@ function ensureAiPolicy(model) {
     ]));
     const nodeCandidates = aiMembers.length > 0 ? aiMembers : ['REJECT'];
 
-    aiGroups.forEach(group => {
+    aiGroups.forEach((group) => {
         group.members = proxyOnlyMembers(group.members);
         if (group.members.length === 0) group.members = ['REJECT'];
     });
 
-    const existingNames = new Set(model.groups.map(group => group.name));
+    const existingNames = new Set(model.groups.map((group) => group.name));
     if (!existingNames.has('🤖 AI 自动')) {
         model.groups.push({
             name: '🤖 AI 自动',
             type: 'url-test',
             members: nodeCandidates,
             filters: [],
-            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
+            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 },
         });
         existingNames.add('🤖 AI 自动');
     }
@@ -282,7 +305,7 @@ function ensureAiPolicy(model) {
             type: 'fallback',
             members: nodeCandidates,
             filters: [],
-            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 }
+            options: { url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 },
         });
         existingNames.add('🤖 AI 故障转移');
     }
@@ -290,11 +313,11 @@ function ensureAiPolicy(model) {
         model.groups.push({
             name: '🤖 智能 AI',
             type: 'select',
-            members: ['🤖 AI 自动', '🤖 AI 故障转移']
+            members: ['🤖 AI 自动', '🤖 AI 故障转移'],
         });
         existingNames.add('🤖 智能 AI');
     }
-    AI_SERVICE_RULES.forEach(service => {
+    AI_SERVICE_RULES.forEach((service) => {
         const groupName = `🤖 ${service.name}`;
         if (!existingNames.has(groupName)) {
             model.groups.push({
@@ -302,25 +325,29 @@ function ensureAiPolicy(model) {
                 type: 'select',
                 members: ['🤖 AI 自动', '🤖 AI 故障转移'],
                 filters: [],
-                options: {}
+                options: {},
             });
             existingNames.add(groupName);
         }
     });
 
-    const existingRules = new Set(model.rules.map(rule => `${rule.type}|${rule.value}|${rule.policy}`));
+    const existingRules = new Set(
+        model.rules.map((rule) => `${rule.type}|${rule.value}|${rule.policy}`)
+    );
     const aiRules = [];
-    AI_SERVICE_RULES.forEach(service => service.domains.forEach(domain => {
-        const rule = {
-            type: 'domain-suffix',
-            value: domain,
-            policy: `🤖 ${service.name}`,
-            source: 'inline',
-            extras: []
-        };
-        const key = `${rule.type}|${rule.value}|${rule.policy}`;
-        if (!existingRules.has(key)) aiRules.push(rule);
-    }));
+    AI_SERVICE_RULES.forEach((service) =>
+        service.domains.forEach((domain) => {
+            const rule = {
+                type: 'domain-suffix',
+                value: domain,
+                policy: `🤖 ${service.name}`,
+                source: 'inline',
+                extras: [],
+            };
+            const key = `${rule.type}|${rule.value}|${rule.policy}`;
+            if (!existingRules.has(key)) aiRules.push(rule);
+        })
+    );
     // 保留模板作者已有的精确规则优先级；新服务规则只补缺失项。
     model.rules = [...model.rules, ...aiRules];
 }
@@ -388,7 +415,9 @@ export function applySmartModelOptimizations(model) {
     // 2. DNS 出口策略组注入：
     // 只要没用自定义 DNS（使用作者默认 Safe DNS），就保证注入 DNS 出口策略组；
     // 只要自定义配置了 DNS，就不跟随注入 DNS 出口策略组。
-    const hasCustomDns = Boolean(model.settings?.customDnsOverride && String(model.settings.customDnsOverride).trim());
+    const hasCustomDns = Boolean(
+        model.settings?.customDnsOverride && String(model.settings.customDnsOverride).trim()
+    );
     if (!hasCustomDns) {
         ensureDnsProxyGroup(model);
     }
@@ -413,9 +442,9 @@ export function applySmartModelOptimizations(model) {
         if (nodeEntries.length > 0) {
             // 4. 识别地区分组并注入
             const regions = groupNodeLinesByRegion(nodeEntries);
-            
+
             // 注入地区自动选优组
-            regions.forEach(region => {
+            regions.forEach((region) => {
                 if (hasEquivalentRegionGroup(model, region)) return;
                 model.groups.push({
                     name: region.name,
@@ -424,8 +453,8 @@ export function applySmartModelOptimizations(model) {
                     options: {
                         url: 'http://www.gstatic.com/generate_204',
                         interval: '300',
-                        tolerance: '50'
-                    }
+                        tolerance: '50',
+                    },
                 });
             });
         }
@@ -456,7 +485,7 @@ export function applySmartModelOptimizations(model) {
 
     // 7. 最后进行全局修剪与去重 (始终执行，保证输出质量)
     dedupeGroupsByName(model);
-    pruneInvalidMembers(model); 
+    pruneInvalidMembers(model);
     pruneEmptyGroups(model);
 
     return model;

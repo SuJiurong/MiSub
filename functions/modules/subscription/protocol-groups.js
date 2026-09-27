@@ -49,8 +49,8 @@ export function groupNodeLinesByProtocol(nodeLines = []) {
         if (matched.length > 0) {
             grouped.push({
                 name,
-                lines: matched.map(item => item.line),
-                count: matched.length
+                lines: matched.map((item) => item.line),
+                count: matched.length,
             });
         }
     }
