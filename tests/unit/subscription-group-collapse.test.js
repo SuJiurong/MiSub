@@ -54,8 +54,25 @@ describe('订阅源按站点折叠', () => {
         // 三张卡片都在（折叠但已渲染），且出现数量徽标 3
         expect(wrapper.findAll('.stub-card')).toHaveLength(3);
         expect(wrapper.html()).toContain('>3<');
+        const groupToggle = wrapper.find('[aria-expanded="false"]');
+        expect(groupToggle.exists()).toBe(true);
+        expect(groupToggle.attributes('aria-expanded')).toBe('false');
+        expect(wrapper.findAll('.stub-card')[0].element.parentElement.parentElement.style.display).toBe('none');
         // 有可折叠分组时会出现「折叠全部」
         expect(wrapper.html()).toMatch(/折叠全部|Collapse all/);
+    });
+
+    it('用户展开分组后，分页/列表更新不会再次自动收起该站点', async () => {
+        const subs = [
+            makeSub('a', 's1', 'https://same.example.com/1'),
+            makeSub('b', 's2', 'https://same.example.com/2'),
+        ];
+        const wrapper = mountPanel(subs);
+        await wrapper.find('[aria-expanded="false"]').trigger('click');
+        expect(wrapper.find('[aria-expanded="true"]').exists()).toBe(true);
+
+        await wrapper.setProps({ paginatedSubscriptions: [...subs] });
+        expect(wrapper.find('[aria-expanded="true"]').exists()).toBe(true);
     });
 
     it('单条目站点不折叠，直接平铺', async () => {
