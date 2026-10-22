@@ -4,6 +4,21 @@ import { generateBuiltinClashConfig, generateProxiesOnly } from '../../functions
 import { SOCKS5_GROUP } from '../../functions/modules/subscription/protocol-groups.js';
 
 describe('Clash 内置生成器', () => {
+    it('应将无认证 HTTP URL 转换为 Clash HTTP 代理', () => {
+        const parsed = yaml.load(generateProxiesOnly('http://192.0.2.10:9002#no-auth'));
+
+        expect(parsed.proxies).toHaveLength(1);
+        expect(parsed.proxies[0]).toMatchObject({
+            name: expect.stringContaining('no-auth'),
+            type: 'http',
+            server: '192.0.2.10',
+            port: 9002,
+            username: '',
+            password: '',
+            udp: false,
+        });
+    });
+
     it('应清理节点列表中的控制字符', () => {
         const nodeWithControl = 'ss://YWVzLTEyOC1nY206cGFzc3dvcmQ=@1.2.3.4:8388#Test\x00SS';
         const result = generateBuiltinClashConfig(nodeWithControl);
